@@ -26,8 +26,8 @@ interface DeviceVerificationScreenProps {
 
 const DEVICE_STORAGE_KEY = 'rg_phone_registered_device_v1';
 const BOUND_TELEGRAM_ID_KEY = 'rg_bound_telegram_id_v1';
-const BOT_TOKEN = '8984266485:AAGZIZjIwMnucpwDYf282z0-pAzsLALtWF0';
-const MINI_APP_URL = 'https://scbot-ochre.vercel.app/';
+const BOT_TOKEN = '8984266485:AAENUKdJYVajzcdqthCX0uMnnYeu8pjfiMM';
+const MINI_APP_URL = 'https://rdostbt.vercel.app/';
 
 
 export function DeviceVerificationScreen({
