@@ -9,11 +9,13 @@
 Flow:
 1. User sends /start -> Mandatory Channel Join (2x4 Grid '✔ Join' buttons + '✔ Claim')
 2. User joins channels & clicks '✔ Claim' -> Real-time Channel Verification
-3. Once channels verified -> Step 2: Strict Device Verification
-4. Strict device verification in WebApp -> Home unlock + Instant payment notification
-5. Every new user gets strictly 1 Scratch Card.
-6. Per referral: +1 Free Scratch Card awarded after friend's 1st scratch in Firebase RTDB.
-7. Admin Commands: /ownerhelp, /channels, /addchannel, /removechannel, /emojitest, /broadcast, /stats.
+3. NO Auto-Approve on Join Requests -> Join request is recorded to allow verification without force-accepting.
+4. If user leaves any channel, 'chat_member' event immediately detects it and revokes verification.
+5. Once channels verified -> Step 2: Strict Device Verification
+6. Strict device verification in WebApp -> Home unlock + Instant payment notification
+7. Every new user gets strictly 1 Scratch Card.
+8. Per referral: +1 Free Scratch Card awarded after friend's 1st scratch in Firebase RTDB.
+9. Admin Commands: /ownerhelp, /channels, /addchannel, /removechannel, /emojitest, /broadcast, /stats.
 =============================================================================
 """
 
@@ -48,48 +50,6 @@ PERMANENT_CHANNELS = [
         "url": "https://t.me/+7clQNCkYuAAxYWQ1",
         "is_private": True,
     },
-    {
-        "id": "-1003479784001",
-        "name": "Official Channel 2",
-        "url": "https://t.me/+7clQNCkYuAAxYWQ1",
-        "is_private": True,
-    },
-    {
-        "id": "-1003479784002",
-        "name": "Official Channel 3",
-        "url": "https://t.me/+7clQNCkYuAAxYWQ1",
-        "is_private": True,
-    },
-    {
-        "id": "-1003479784003",
-        "name": "Official Channel 4",
-        "url": "https://t.me/+7clQNCkYuAAxYWQ1",
-        "is_private": True,
-    },
-    {
-        "id": "-1003479784004",
-        "name": "Official Channel 5",
-        "url": "https://t.me/+7clQNCkYuAAxYWQ1",
-        "is_private": True,
-    },
-    {
-        "id": "-1003479784005",
-        "name": "Official Channel 6",
-        "url": "https://t.me/+7clQNCkYuAAxYWQ1",
-        "is_private": True,
-    },
-    {
-        "id": "-1003479784006",
-        "name": "Official Channel 7",
-        "url": "https://t.me/+7clQNCkYuAAxYWQ1",
-        "is_private": True,
-    },
-    {
-        "id": "-1003479784007",
-        "name": "Official Channel 8",
-        "url": "https://t.me/+7clQNCkYuAAxYWQ1",
-        "is_private": True,
-    },
 ]
 
 # ---------------------------------------------------------------------------
@@ -97,6 +57,7 @@ PERMANENT_CHANNELS = [
 # ---------------------------------------------------------------------------
 DEFAULT_OWNERS = [
     "rohit79041",
+    "Lokesh957232",
     "sc812490",
 ]
 
@@ -335,6 +296,11 @@ def record_channel_joined(user_id: str, channel_id: str):
     db_request(f"channel_joins/{user_id}/{clean_ch}.json", method="PUT", data=True)
 
 
+def remove_channel_joined(user_id: str, channel_id: str):
+    clean_ch = re.sub(r"[^a-zA-Z0-9_-]", "_", str(channel_id))
+    db_request(f"channel_joins/{user_id}/{clean_ch}.json", method="DELETE")
+
+
 def is_channel_joined_in_db(user_id: str, channel_id: str) -> bool:
     clean_ch = re.sub(r"[^a-zA-Z0-9_-]", "_", str(channel_id))
     res = db_request(f"channel_joins/{user_id}/{clean_ch}.json")
@@ -396,58 +362,9 @@ def pbtn(text: str, emoji_char: str = None, **kwargs) -> dict:
 
 def init_premium_emojis():
     """
-    Fetches official live animated custom_emoji_id stickers directly from Telegram's servers
-    (getForumTopicIconStickers) and merges any owner-saved custom emoji IDs from Firebase RTDB.
+    Loads verified custom emoji overrides saved by owner via /setemojis in Firebase RTDB.
     """
     global _PREMIUM_EMOJI_MAP
-    try:
-        res = tg_api("getForumTopicIconStickers", {})
-        if res.get("ok") and isinstance(res.get("result"), list):
-            stickers = res["result"]
-            by_emoji = {}
-            all_ids = []
-            for st in stickers:
-                cid = str(st.get("custom_emoji_id", "")).strip()
-                em = st.get("emoji", "")
-                if cid:
-                    all_ids.append(cid)
-                    if em and em not in by_emoji:
-                        by_emoji[em] = cid
-
-            # Map exact matching base emojis from Telegram official animated topic icons
-            for k in list(_PREMIUM_EMOJI_MAP.keys()):
-                if k in by_emoji:
-                    _PREMIUM_EMOJI_MAP[k] = by_emoji[k]
-
-            # Also map related semantic emojis from official stickers if available
-            alias_pairs = [
-                ("👑", ["👑", "🏆", "⭐", "💎"]),
-                ("🔥", ["🔥", "⚡", "💥"]),
-                ("🎉", ["🎉", "🥳", "🎊", "✨"]),
-                ("🎁", ["🎁", "💎", "🏆", "💰"]),
-                ("🛫", ["🛫", "✈️", "🚀", "⚡"]),
-                ("🚨", ["🚨", "🔔", "❗", "⚠️", "🔥"]),
-                ("🌺", ["🌺", "🌸", "🌷", "🌹", "🌻", "🍀"]),
-                ("😍", ["😍", "❤️", "💖", "🥰", "🤩"]),
-                ("🍑", ["🍑", "🍓", "🍒", "🍎", "🔥"]),
-                ("👥", ["👥", "👤", "💬", "📢"]),
-                ("🚀", ["🚀", "⚡", "🔥"]),
-                ("⚠️", ["⚠️", "❗", "❓", "🔔"]),
-                ("🔄", ["🔄", "⚡", "⏳"]),
-                ("👌", ["👌", "👍", "✅"]),
-                ("🔗", ["🔗", "📌", "📎"]),
-                ("📊", ["📊", "📈", "💼"]),
-                ("🚫", ["🚫", "❌", "⛔"]),
-            ]
-            for target_em, candidates in alias_pairs:
-                for cand in candidates:
-                    if cand in by_emoji:
-                        _PREMIUM_EMOJI_MAP[target_em] = by_emoji[cand]
-                        break
-    except Exception as e:
-        logger.debug(f"init_premium_emojis topic stickers note: {e}")
-
-    # Load any custom emoji overrides saved by owner via /setemojis in Firebase RTDB
     try:
         saved = db_request("bot_config/premium_emojis.json")
         if isinstance(saved, dict):
@@ -479,6 +396,8 @@ def send_message_smart(chat_id, text: str, reply_markup: dict = None, parse_mode
         # Final safety fallback stripping <tg-emoji> wrapper tags so message never fails
         plain_html = re.sub(r'<tg-emoji[^>]*>(.*?)</tg-emoji>', r'\1', text)
         res = send_message(chat_id, plain_html, reply_markup=reply_markup, parse_mode=parse_mode)
+    if not res.get("ok"):
+        logger.warning(f"Telegram sendMessage failed for chat {chat_id}: {res.get('description')}")
     return res
 
 
@@ -531,12 +450,31 @@ def is_owner(user: dict) -> bool:
     return uid in _OWNERS_CACHE or uname in _OWNERS_CACHE
 
 
+def clean_channel_url(raw_url: str) -> str:
+    url = (raw_url or "").strip()
+    if url.startswith("http://") or url.startswith("https://"):
+        return url
+    if url.startswith("t.me/") or url.startswith("telegram.me/"):
+        return f"https://{url}"
+    if url.startswith("@"):
+        return f"https://t.me/{url[1:]}"
+    if url.startswith("+"):
+        return f"https://t.me/{url}"
+    if "/" in url:
+        return f"https://t.me/{url.lstrip('/')}"
+    if url:
+        return f"https://t.me/{url}"
+    return "https://t.me"
+
+
 def build_channels_keyboard(channels: list[dict], ref_param: str = None) -> dict:
     buttons = []
     for i in range(0, len(channels), 2):
-        row = [pbtn("Join 🛫", emoji_char="🛫", url=channels[i]["url"])]
+        u1 = clean_channel_url(channels[i].get("url") or "")
+        row = [pbtn("Join 🛫", emoji_char="🛫", url=u1)]
         if i + 1 < len(channels):
-            row.append(pbtn("Join 🛫", emoji_char="🛫", url=channels[i + 1]["url"]))
+            u2 = clean_channel_url(channels[i + 1].get("url") or "")
+            row.append(pbtn("Join 🛫", emoji_char="🛫", url=u2))
         buttons.append(row)
 
     claim_callback = f"claim_{ref_param or 'none'}"
@@ -552,11 +490,9 @@ def check_user_channels(user_id: int) -> tuple[bool, list[dict]]:
     unjoined = []
     for ch in channels:
         ch_id = str(ch.get("id", "")).strip()
-
-        if is_channel_joined_in_db(str(user_id), ch_id):
-            continue
-
         target = int(ch_id) if ch_id.lstrip("-").isdigit() else ch_id
+
+        # 1. Always check live Telegram membership status first (detects if user left or was kicked!)
         res = tg_api("getChatMember", {"chat_id": target, "user_id": user_id})
 
         if res.get("ok") and res.get("result"):
@@ -565,9 +501,17 @@ def check_user_channels(user_id: int) -> tuple[bool, list[dict]]:
                 record_channel_joined(str(user_id), ch_id)
                 continue
             elif status in ["left", "kicked"]:
+                # If user sent a join request to a private channel (not auto-approved yet),
+                # Telegram status is still "left", so allow if join request was recorded in DB.
+                # However, if user had joined and later left, chat_member update removes it from DB!
+                if is_channel_joined_in_db(str(user_id), ch_id):
+                    continue
                 unjoined.append(ch)
                 continue
         else:
+            # If user is not a member yet, check if they sent a join request recorded in DB
+            if is_channel_joined_in_db(str(user_id), ch_id):
+                continue
             desc = str(res.get("description", "")).lower()
             if "not a member" in desc or "user not found" in desc:
                 unjoined.append(ch)
@@ -689,7 +633,11 @@ def handle_start(chat_id, user: dict, args: list[str]):
         )
         return
 
-    if existing.get("isVerified") and existing.get("deviceVerified") and not existing.get("deviceBlocked"):
+    # Always verify that user is still joined / has sent join request to all mandatory channels!
+    # If user left any channel and presses /start again, force them to rejoin before showing Home page.
+    all_joined, _ = check_user_channels(int(user_id))
+
+    if all_joined and existing.get("isVerified") and existing.get("deviceVerified") and not existing.get("deviceBlocked"):
         app_url = f"{WEB_URL}/?uid={user_id}&start=ref_{referrer_id}" if referrer_id else f"{WEB_URL}/?uid={user_id}"
         verified_markup = {
             "inline_keyboard": [
@@ -732,10 +680,36 @@ def handle_claim_callback(query: dict):
 
     all_joined, _ = check_user_channels(int(user_id))
     if not all_joined:
-        answer_callback_query(query_id, "⚠️ Kripya sabhi channels join karein fir Claim dabayein!", show_alert=True)
+        answer_callback_query(query_id, "⚠️ Kripya sabhi channels join karein (ya Join Request bhejein) fir Claim dabayein!", show_alert=True)
         return
 
     answer_callback_query(query_id)
+
+    # Check if user already completed Step 2 Device Verification previously (e.g. rejoined after leaving channel)
+    db_user = get_user_from_db(user_id) or {}
+    if db_user.get("deviceBlocked") is True:
+        answer_callback_query(
+            query_id,
+            "🚫 Device Verification Failed! Ye account permanently block ho chuka hai.",
+            show_alert=True,
+        )
+        return
+
+    if db_user.get("deviceVerified") and db_user.get("isVerified"):
+        app_url = f"{WEB_URL}/?uid={user_id}&start={ref_param}" if ref_param else f"{WEB_URL}/?uid={user_id}"
+        final_markup = {
+            "inline_keyboard": [
+                [pbtn("🎉 Click To Home", emoji_char="🎉", web_app={"url": app_url})],
+                [pbtn("👥 Refer And Earn", emoji_char="👥", callback_data="my_invite")],
+            ]
+        }
+        final_text = (
+            f"{pe('🔥')}<b>Congratulations Sussefuly Verfied {pe('✅')}</b>\n\n"
+            f"{pe('🎉')} <b>Click To Home And Refer And Earn {pe('🎉')}</b>\n\n"
+            f"{pe('😍')}{pe('😍')}<b>Now All Payment Instant {pe('😍')}{pe('😍')}</b>"
+        )
+        edit_message_text_smart(chat_id, message_id, final_text, reply_markup=final_markup)
+        return
 
     verify_url = f"{WEB_URL}/?verify=true&uid={user_id}"
     if ref_param:
@@ -769,6 +743,24 @@ def handle_check_device_callback(query: dict):
         raw = data.replace("check_device_", "")
         if raw != "none":
             ref_param = raw
+
+    # Also ensure user hasn't left any channel before unlocking Home
+    all_joined, _ = check_user_channels(int(user_id))
+    if not all_joined:
+        answer_callback_query(
+            query_id,
+            "⚠️ Aapne channel leave kar diya hai! Kripya sabhi channels wapas join karein.",
+            show_alert=True,
+        )
+        channels = load_channels()
+        welcome_text = (
+            f"{pe('🎁')} <b>Hey  Welcome To Scratch The Win !!</b>\n\n"
+            f"{pe('🛫')} <b>Join  Channels Below To Continue{pe('🛫')}</b>\n\n"
+            f"{pe('😍')} <b>After Joining Click Claim{pe('🚨')}</b>"
+        )
+        markup = build_channels_keyboard(channels, ref_param)
+        edit_message_text_smart(chat_id, message_id, welcome_text, reply_markup=markup)
+        return
 
     db_user = get_user_from_db(user_id) or {}
     if db_user.get("deviceBlocked") is True:
@@ -964,19 +956,33 @@ def handle_addchannel(chat_id, user: dict, args: list[str]):
     if not is_owner(user):
         send_message_smart(chat_id, f"{pe('🚫')} Permission denied!")
         return
-    if len(args) < 3:
+    if len(args) < 2:
         send_message_smart(
             chat_id,
             f"{pe('⚠️')} <b>Usage:</b>\n"
             "<code>/addchannel &lt;chat_id_or_@username&gt; &lt;name&gt; &lt;url&gt;</code>\n\n"
             "<b>Example:</b>\n"
-            "<code>/addchannel @mychannel VIP Official Channel https://t.me/mychannel</code>",
+            "<code>/addchannel -1004402221199 VIP Channel https://t.me/+1LYnFEJ9BHlkNGJl</code>",
         )
         return
 
-    ch_id = args[0].strip()
-    url = args[-1].strip()
-    name = " ".join(args[1:-1]).strip()
+    # Intelligent argument parser: automatically identifies URL, Chat ID, and Channel Name
+    url_found = None
+    id_found = None
+    name_parts = []
+
+    for a in args:
+        a_str = a.strip()
+        if not url_found and ("t.me" in a_str or a_str.startswith("http://") or a_str.startswith("https://") or (a_str.startswith("+") and len(a_str) > 8)):
+            url_found = a_str
+        elif not id_found and (a_str.startswith("-100") or a_str.lstrip("-").isdigit() or (a_str.startswith("@") and not name_parts)):
+            id_found = a_str
+        else:
+            name_parts.append(a_str)
+
+    ch_id = id_found or args[0].strip()
+    url = clean_channel_url(url_found or (args[-1].strip() if len(args) >= 3 else ""))
+    name = " ".join(name_parts).strip() or "Official Channel"
 
     channel_obj = {
         "id": ch_id,
@@ -1157,14 +1163,27 @@ def handle_broadcast(chat_id, user: dict, message: dict):
 # ---------------------------------------------------------------------------
 def process_update(upd: dict):
     try:
-        # 1. Handle Chat Join Request (Private Channels)
+        # 1. Handle Chat Join Request (Private Channels - Record request only, NO Auto-Approve)
         if "chat_join_request" in upd:
             req = upd["chat_join_request"]
             user_id = str(req.get("from", {}).get("id", ""))
             chat_id = str(req.get("chat", {}).get("id", ""))
             if user_id and chat_id:
                 record_channel_joined(user_id, chat_id)
-                tg_api("approveChatJoinRequest", {"chat_id": chat_id, "user_id": int(user_id)})
+            return
+
+        # 1b. Handle Chat Member Status Change (Detect when user leaves/is kicked or joins a channel)
+        if "chat_member" in upd:
+            cm = upd["chat_member"]
+            chat_id = str(cm.get("chat", {}).get("id", ""))
+            new_m = cm.get("new_chat_member") or {}
+            user_id = str((new_m.get("user") or {}).get("id", ""))
+            status = new_m.get("status", "")
+            if user_id and chat_id:
+                if status in ["left", "kicked"]:
+                    remove_channel_joined(user_id, chat_id)
+                elif status in ["member", "administrator", "creator", "restricted"]:
+                    record_channel_joined(user_id, chat_id)
             return
 
         # 2. Handle Callback Query (Inline Buttons)
@@ -1249,7 +1268,7 @@ def main():
                 {
                     "offset": offset,
                     "timeout": 25,
-                    "allowed_updates": ["message", "callback_query", "chat_join_request"],
+                    "allowed_updates": ["message", "callback_query", "chat_join_request", "chat_member"],
                 },
                 timeout=35,
             )

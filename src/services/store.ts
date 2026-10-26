@@ -790,52 +790,42 @@ export function saveTheme(theme: Partial<ThemeSettings>): void {
 
 // Dummy users list completely purged for clean production ready-to-use app
 export const DUMMY_USER_IDS_TO_PURGE = [
+  '88491204',
   '91000001', '91000002', '91000003', '91000004', '91000005',
   '91000006', '91000007', '91000008', '91000009', '91000010',
   '91000011', '91000012', '91000013', '91000014', '91000015',
   '91000016', '91000017', '91000018', '91000019', '91000020',
 ];
 
-export function isDummyUserId(id?: string): boolean {
-  if (!id) return false;
-  const clean = String(id).trim();
-  return clean.startsWith('910000') || DUMMY_USER_IDS_TO_PURGE.includes(clean);
+export function isDummyUserId(id?: string, username?: string, name?: string): boolean {
+  if (!id && !username && !name) return false;
+  const cleanId = String(id || '').trim();
+  const cleanUname = String(username || '').trim().toLowerCase();
+  const cleanName = String(name || '').trim().toLowerCase();
+  return (
+    cleanId.startsWith('910000') ||
+    cleanId === '88491204' ||
+    cleanUname === 'user_winner' ||
+    cleanUname.includes('dummy') ||
+    cleanName === 'telegram user' ||
+    cleanName.includes('dummy user') ||
+    cleanName.includes('test user') ||
+    DUMMY_USER_IDS_TO_PURGE.includes(cleanId)
+  );
 }
 
 export function getAllUsers(): UserProfile[] {
   if (typeof window === 'undefined') return [];
   const raw = localStorage.getItem(STORAGE_KEYS.USERS);
   if (!raw) {
-    // Default initial user starts with ₹0 balance and 1 free lucky scratch
-    const initialUser: UserProfile = {
-      id: '88491204',
-      telegramId: '88491204',
-      name: 'Telegram User',
-      username: 'user_winner',
-      balance: 0,
-      spins: 1, // Exactly 1 initial scratch card
-      friendsJoined: 0,
-      spinsEarned: 1,
-      createdAt: Date.now(),
-      isVerified: true,
-      deviceVerified: true,
-      claimedWelcomeSpin: false,
-    };
-    const starterList = [initialUser];
-    saveUsers(starterList);
-    addTransaction({
-      userId: initialUser.id,
-      type: 'welcome_bonus',
-      amount: 0,
-      description: 'Sign Up Bonus: 1 Free Scratch Card',
-      status: 'completed',
-    });
-    return starterList;
+    return [];
   }
   try {
     const parsed: UserProfile[] = JSON.parse(raw);
     // Automatically purge any dummy users that were previously seeded
-    const cleaned = parsed.filter((u) => !isDummyUserId(u.id) && !isDummyUserId(u.telegramId));
+    const cleaned = parsed.filter(
+      (u) => !isDummyUserId(u.id, u.username, u.name) && !isDummyUserId(u.telegramId, u.username, u.name)
+    );
     if (cleaned.length !== parsed.length) {
       localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(cleaned));
       notifySubscribers('users_cleaned_dummy');
@@ -1078,7 +1068,7 @@ export function getCurrentUser(): UserProfile {
     }
   } else {
     const stored = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID) : null;
-    if (stored && stored !== '88491204') {
+    if (stored && !isDummyUserId(stored)) {
       effectiveId = stored;
     } else {
       // Generate unique persistent visitor ID so external visitors NEVER share balance/referrals
@@ -1755,14 +1745,25 @@ export async function refreshUsersFromRemote(): Promise<UserProfile[]> {
         const now = Date.now();
 
         const arr = (Object.values(data) as UserProfile[])
-          .filter((x) => x && x.id)
+          .filter((x) => x && x.id && !isDummyUserId(x.id, x.username, x.name))
           .map((remU) => {
             const uid = String(remU.id).trim();
             const lastMut = userMutationTimestamps.get(uid) || 0;
             if (now - lastMut < 3500 && localMap.has(uid)) {
               return localMap.get(uid)!;
             }
-            return remU;
+            return {
+              ...remU,
+              id: uid,
+              telegramId: String(remU.telegramId || uid).trim(),
+              name: remU.name || `User #${uid.slice(-4)}`,
+              username: remU.username || `user_${uid.slice(-4)}`,
+              balance: Number(remU.balance) || 0,
+              spins: typeof remU.spins === 'number' ? Math.max(0, remU.spins) : 0,
+              friendsJoined: Number(remU.friendsJoined) || 0,
+              spinsEarned: Number(remU.spinsEarned) || 0,
+              createdAt: Number(remU.createdAt) || Date.now(),
+            };
           });
         arr.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
         localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(arr));
@@ -1777,55 +1778,78 @@ export async function refreshUsersFromRemote(): Promise<UserProfile[]> {
 }
 
 /**
- * Efficient 10-by-10 Paginated User Batch Loader from Firebase RTDB
- * Prevents heavy full-database downloads so the website & database stay fast.
+ * Direct single user fetch from Firebase RTDB by user ID.
+ * Resolves immediate lookup for search queries in Admin Portal.
  */
-export async function fetchUsersBatchFromRemote(
-  batchSize = 10,
-  lastKey?: string | null
-): Promise<{ users: UserProfile[]; nextCursor: string | null; hasMore: boolean }> {
+export async function fetchSingleRemoteUser(userId: string): Promise<UserProfile | null> {
+  const cleanId = String(userId || '').trim().replace(/^[#@]/, '');
+  if (!cleanId || isDummyUserId(cleanId)) return null;
+
   try {
-    let url = `${RTDB_BASE_URL}/users.json?orderBy=%22$key%22&limitToFirst=${batchSize + 1}`;
-    if (lastKey) {
-      url += `&startAt=%22${encodeURIComponent(lastKey)}%22`;
-    }
-    const resp = await fetch(url, { cache: 'no-store' });
-    const contentType = resp.headers.get('content-type') || '';
-    if (resp.ok && contentType.includes('application/json')) {
+    const resp = await fetch(`${RTDB_BASE_URL}/users/${encodeURIComponent(cleanId)}.json`, {
+      cache: 'no-store',
+    });
+    if (resp.ok) {
       const data = await resp.json();
-      if (data && typeof data === 'object') {
-        const keys = Object.keys(data).sort();
-        const filteredKeys = lastKey ? keys.filter((k) => k !== lastKey) : keys;
-        const hasMore = filteredKeys.length > batchSize;
-        const pageKeys = filteredKeys.slice(0, batchSize);
-        const batchUsers = pageKeys
-          .map((k) => data[k] as UserProfile)
-          .filter((x) => x && x.id);
-
-        // Merge loaded batch into local cache without overwriting other users or in-flight mutations
-        const existing = getAllUsers();
-        const existingMap = new Map(existing.map((u) => [String(u.id).trim(), u]));
-        const now = Date.now();
-        for (const u of batchUsers) {
-          const uid = String(u.id).trim();
-          const lastMut = userMutationTimestamps.get(uid) || 0;
-          if (now - lastMut < 3500 && existingMap.has(uid)) {
-            continue;
+      if (data && typeof data === 'object' && (data.id || data.telegramId || data.name)) {
+        if (!isDummyUserId(data.id, data.username, data.name)) {
+          const u: UserProfile = {
+            id: String(data.id || cleanId).trim(),
+            telegramId: String(data.telegramId || data.id || cleanId).trim(),
+            name: data.name || `User #${cleanId.slice(-4)}`,
+            username: data.username || `user_${cleanId.slice(-4)}`,
+            balance: Number(data.balance) || 0,
+            spins: typeof data.spins === 'number' ? Math.max(0, data.spins) : 0,
+            friendsJoined: Number(data.friendsJoined) || 0,
+            spinsEarned: Number(data.spinsEarned) || 0,
+            createdAt: Number(data.createdAt) || Date.now(),
+            isVerified: Boolean(data.isVerified),
+            deviceVerified: Boolean(data.deviceVerified),
+            deviceBlocked: Boolean(data.deviceBlocked),
+            ...data,
+          };
+          // Cache in local storage
+          const users = getAllUsers();
+          const existingIdx = users.findIndex(
+            (x) => String(x.id).trim() === u.id || String(x.telegramId).trim() === u.id
+          );
+          if (existingIdx >= 0) {
+            users[existingIdx] = { ...users[existingIdx], ...u };
+          } else {
+            users.unshift(u);
           }
-          existingMap.set(uid, u);
+          localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+          notifySubscribers('users_updated');
+          return u;
         }
-        const merged = Array.from(existingMap.values());
-        localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(merged));
-
-        const nextCursor = pageKeys.length > 0 ? pageKeys[pageKeys.length - 1] : null;
-        return { users: merged, nextCursor, hasMore: hasMore || merged.length > batchSize };
       }
     }
   } catch (err) {
-    console.warn('Paginated users batch fetch notice:', err);
+    console.warn('fetchSingleRemoteUser error:', err);
+  }
+  return null;
+}
+
+/**
+ * User Batch Loader from Firebase RTDB.
+ * Fetches the clean user list from remote RTDB without failing orderBy queries.
+ */
+export async function fetchUsersBatchFromRemote(
+  _batchSize = 20,
+  _lastKey?: string | null
+): Promise<{ users: UserProfile[]; nextCursor: string | null; hasMore: boolean }> {
+  try {
+    const allUsers = await refreshUsersFromRemote();
+    return {
+      users: allUsers,
+      nextCursor: null,
+      hasMore: false,
+    };
+  } catch (err) {
+    console.warn('Users batch fetch notice:', err);
   }
   const fallback = getAllUsers();
-  return { users: fallback, nextCursor: null, hasMore: fallback.length > batchSize };
+  return { users: fallback, nextCursor: null, hasMore: false };
 }
 
 const activeWithdrawalLocks = new Set<string>();
@@ -3034,8 +3058,8 @@ export async function fetchUserLastReferralsFromRemote(
               username: val.username,
               description: cName,
               createdAt: Number(val.timestamp || val.createdAt || Date.now()),
-              rewardGiven: val.status === 'completed_first_spin' || val.rewardGiven === true,
-              status: val.status || (val.rewardGiven ? 'completed_first_spin' : 'pending_first_scratch'),
+              rewardGiven: val.status === 'completed_first_spin' || val.status === 'completed' || val.status === 'rewarded' || val.rewardGiven === true,
+              status: (val.status === 'completed_first_spin' || val.status === 'completed' || val.status === 'rewarded' || val.rewardGiven === true) ? 'completed_first_spin' : (val.status || 'pending_first_scratch'),
             });
           }
         }

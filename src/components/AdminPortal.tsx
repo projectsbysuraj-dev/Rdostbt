@@ -58,6 +58,8 @@ import {
   getUserLastReferrals,
   UserReferralEntry,
   purgeAllDummyUsers,
+  refreshUsersFromRemote,
+  fetchSingleRemoteUser,
 } from '../services/store';
 import { triggerHaptic } from '../services/telegram';
 
@@ -88,11 +90,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [userReferralsMap, setUserReferralsMap] = useState<Record<string, UserReferralEntry[]>>({});
   const [loadingReferralsUser, setLoadingReferralsUser] = useState<Record<string, boolean>>({});
   const [withdrawals, setWithdrawals] = useState(getAllWithdrawals());
-  const [users, setUsers] = useState<UserProfile[]>(() => getAllUsers().slice(0, 10));
-  const [visibleUserCount, setVisibleUserCount] = useState<number>(10);
+  const [users, setUsers] = useState<UserProfile[]>(() => getAllUsers());
+  const [visibleUserCount, setVisibleUserCount] = useState<number>(20);
   const [nextUsersCursor, setNextUsersCursor] = useState<string | null>(null);
   const [hasMoreRemoteUsers, setHasMoreRemoteUsers] = useState<boolean>(false);
   const [isLoadingMoreUsers, setIsLoadingMoreUsers] = useState<boolean>(false);
+  const [isSearchingRemote, setIsSearchingRemote] = useState<boolean>(false);
   const [adminCreds, setAdminCreds] = useState(getAdminCredentials());
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [withdrawalFilter, setWithdrawalFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
@@ -136,11 +139,19 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setIsLoadingMoreUsers(true);
     try {
       await purgeAllDummyUsers();
-      const res = await fetchUsersBatchFromRemote(10, null);
-      setUsers(res.users);
-      setNextUsersCursor(res.nextCursor);
-      setHasMoreRemoteUsers(res.hasMore);
-      setVisibleUserCount(10);
+      const freshUsers = await refreshUsersFromRemote();
+      if (freshUsers && freshUsers.length > 0) {
+        setUsers(freshUsers);
+        setVisibleUserCount(Math.max(20, freshUsers.length));
+      } else {
+        const local = getAllUsers();
+        setUsers(local);
+        setVisibleUserCount(Math.max(20, local.length));
+      }
+      setNextUsersCursor(null);
+      setHasMoreRemoteUsers(false);
+    } catch {
+      setUsers(getAllUsers());
     } finally {
       setIsLoadingMoreUsers(false);
     }
@@ -148,30 +159,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   const handleLoadNext10Users = async () => {
     triggerHaptic('light');
-    if (hasMoreRemoteUsers && nextUsersCursor) {
-      setIsLoadingMoreUsers(true);
-      try {
-        const res = await fetchUsersBatchFromRemote(10, nextUsersCursor);
-        setUsers((prev) => {
-          const map = new Map(prev.map((u) => [String(u.id).trim(), u]));
-          for (const item of res.users) {
-            map.set(String(item.id).trim(), item);
-          }
-          return Array.from(map.values());
-        });
-        setNextUsersCursor(res.nextCursor);
-        setHasMoreRemoteUsers(res.hasMore);
-        setVisibleUserCount((prev) => prev + 10);
-      } finally {
-        setIsLoadingMoreUsers(false);
-      }
-    } else {
-      // Also support slicing local cached users 10 at a time
-      const allLocal = getAllUsers();
-      const nextCount = visibleUserCount + 10;
-      setUsers(allLocal.slice(0, nextCount));
-      setVisibleUserCount(nextCount);
-    }
+    const allLocal = getAllUsers();
+    const nextCount = visibleUserCount + 20;
+    setUsers(allLocal);
+    setVisibleUserCount(nextCount);
   };
 
   const toggleUserReferrals = async (userId: string) => {
@@ -775,12 +766,59 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       return (b.createdAt || 0) - (a.createdAt || 0);
     });
 
-  const filteredUsers = users.filter(
-    (u) =>
-      u.name.toLowerCase().includes(searchUserQuery.toLowerCase()) ||
-      u.id.includes(searchUserQuery) ||
-      u.username.toLowerCase().includes(searchUserQuery.toLowerCase())
-  );
+  const cleanSearch = searchUserQuery.trim().toLowerCase();
+  const rawIdSearch = cleanSearch.replace(/^[#@]/, '').trim();
+
+  // Robust multi-field search (User ID, Telegram ID, username, display name)
+  const filteredUsers = React.useMemo(() => {
+    if (!cleanSearch) return users;
+    return users.filter((u) => {
+      const uid = String(u.id || '').toLowerCase();
+      const tgId = String(u.telegramId || '').toLowerCase();
+      const uname = String(u.username || '').toLowerCase();
+      const name = String(u.name || '').toLowerCase();
+
+      return (
+        uid.includes(cleanSearch) ||
+        tgId.includes(cleanSearch) ||
+        (rawIdSearch && (uid.includes(rawIdSearch) || tgId.includes(rawIdSearch))) ||
+        uname.includes(cleanSearch) ||
+        (rawIdSearch && uname.includes(rawIdSearch)) ||
+        name.includes(cleanSearch)
+      );
+    });
+  }, [users, cleanSearch, rawIdSearch]);
+
+  // Live remote database lookup if search query looks like a User ID / Telegram ID and not in local list
+  useEffect(() => {
+    if (!rawIdSearch || rawIdSearch.length < 3) return;
+
+    const matched = users.some(
+      (u) =>
+        String(u.id).toLowerCase() === rawIdSearch ||
+        String(u.telegramId || '').toLowerCase() === rawIdSearch
+    );
+    if (matched) return;
+
+    const timer = setTimeout(async () => {
+      setIsSearchingRemote(true);
+      try {
+        const found = await fetchSingleRemoteUser(rawIdSearch);
+        if (found) {
+          setUsers((prev) => {
+            const exists = prev.some((x) => String(x.id).trim() === String(found.id).trim());
+            return exists ? prev : [found, ...prev];
+          });
+        }
+      } catch {
+        // Safe ignore
+      } finally {
+        setIsSearchingRemote(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [rawIdSearch, users]);
 
   const adminMenuItems: { id: AdminTab; label: string; icon: React.ReactNode; badge?: number | string; badgeColor?: string }[] = [
     {
@@ -1409,40 +1447,114 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         {/* ----------------- TAB 2: USERS & SPINS (10-at-a-time Batch Loading) ----------------- */}
         {activeTab === 'users' && (
           <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900/80 p-4 rounded-2xl border border-slate-800">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-slate-900/80 p-4 rounded-2xl border border-slate-800">
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <h2 className="font-['Outfit'] font-black text-xl text-white">
                     Users Database &amp; Scratch Management
                   </h2>
-                  <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                    ⚡ 10 Users / Batch Mode
+                  <span className="text-xs font-black uppercase px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5" />
+                    {users.length} Registered Users
+                  </span>
+                  <span className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/40">
+                    ⚡ Live RTDB
                   </span>
                 </div>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Showing {Math.min(filteredUsers.length, visibleUserCount)} of {filteredUsers.length} users (10 at a time for zero website &amp; database lag)
+                <p className="text-xs text-slate-400 mt-1">
+                  {cleanSearch ? (
+                    <span>
+                      Found <strong className="text-sky-400 font-bold">{filteredUsers.length}</strong> matching "{searchUserQuery}" out of <strong className="text-emerald-400 font-bold">{users.length}</strong> registered users
+                    </span>
+                  ) : (
+                    <span>
+                      Showing {Math.min(filteredUsers.length, visibleUserCount)} of <strong className="text-emerald-400 font-bold">{users.length}</strong> total registered users (100% clean real data)
+                    </span>
+                  )}
                 </p>
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
-                <input
-                  type="text"
-                  placeholder="Search user by name or ID..."
-                  value={searchUserQuery}
-                  onChange={(e) => setSearchUserQuery(e.target.value)}
-                  className="bg-slate-950 border border-slate-800 text-sm px-4 py-2 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
-                />
+                <div className="relative flex-1 sm:w-64">
+                  <input
+                    type="text"
+                    placeholder="Search by User ID (#123456) or name..."
+                    value={searchUserQuery}
+                    onChange={(e) => setSearchUserQuery(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 text-sm pl-3 pr-8 py-2 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                  />
+                  {searchUserQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchUserQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs font-bold p-1 cursor-pointer"
+                      title="Clear search"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {isSearchingRemote && (
+                  <span className="flex items-center gap-1 text-[11px] text-sky-400 font-bold animate-pulse">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Searching DB...
+                  </span>
+                )}
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    triggerHaptic('medium');
+                    await loadInitialUsersBatch();
+                  }}
+                  disabled={isLoadingMoreUsers}
+                  className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold text-sky-400 rounded-xl border border-slate-700 flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 disabled:opacity-50"
+                  title="Sync users live from Firebase RTDB"
+                >
+                  <RotateCw className={`w-3.5 h-3.5 ${isLoadingMoreUsers ? 'animate-spin' : ''}`} />
+                  <span>Sync Live</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    triggerHaptic('medium');
+                    const count = await purgeAllDummyUsers();
+                    await loadInitialUsersBatch();
+                    setUserActionToast(`🧹 Cleaned & purged all dummy users! Database me sirf real registered users hain.`);
+                    setTimeout(() => setUserActionToast(null), 3500);
+                  }}
+                  className="px-3 py-2 bg-rose-950/40 hover:bg-rose-900/60 text-xs font-bold text-rose-300 rounded-xl border border-rose-800/50 flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                  title="Purge all dummy users from database"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Clean Dummy</span>
+                </button>
               </div>
             </div>
 
             {userActionToast && (
-              <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 rounded-xl text-xs font-bold animate-fade-in">
-                {userActionToast}
+              <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 rounded-xl text-xs font-bold animate-fade-in flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{userActionToast}</span>
               </div>
             )}
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {filteredUsers.slice(0, visibleUserCount).map((u) => {
+            {filteredUsers.length === 0 ? (
+              <div className="p-8 text-center bg-slate-900/50 border border-slate-800 rounded-2xl">
+                <Users className="w-10 h-10 text-slate-600 mx-auto mb-2" />
+                <p className="text-slate-300 font-bold text-sm">
+                  {cleanSearch ? `No user found with ID or name "${searchUserQuery}"` : 'No registered users found in database.'}
+                </p>
+                {cleanSearch && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    Please verify the user ID or click "Sync Live" to refresh records directly from Firebase RTDB.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {(cleanSearch ? filteredUsers : filteredUsers.slice(0, visibleUserCount)).map((u) => {
                 const isRefExpanded = expandedReferralUsers[u.id] ?? false;
                 const last10Referrals = userReferralsMap[u.id] || getUserLastReferrals(u.id, 10);
                 const isLoadingRefs = loadingReferralsUser[u.id] ?? false;
@@ -1614,23 +1726,21 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 );
               })}
             </div>
+          )}
 
-            {/* Load Next 10 Users Gradually Button */}
-            {(hasMoreRemoteUsers || filteredUsers.length > visibleUserCount) && (
+            {/* Show More Users Button */}
+            {!cleanSearch && filteredUsers.length > visibleUserCount && (
               <div className="pt-2 flex flex-col items-center justify-center gap-2">
                 <button
                   type="button"
                   onClick={handleLoadNext10Users}
-                  disabled={isLoadingMoreUsers}
-                  className="bg-gradient-to-r from-[#0284c7] to-[#0ea5e9] hover:from-[#0369a1] hover:to-[#0284c7] text-white font-['Outfit'] font-black text-xs px-6 py-3 rounded-2xl shadow-lg shadow-sky-600/25 flex items-center gap-2 active:scale-95 transition-all cursor-pointer disabled:opacity-60"
+                  className="bg-gradient-to-r from-[#0284c7] to-[#0ea5e9] hover:from-[#0369a1] hover:to-[#0284c7] text-white font-['Outfit'] font-black text-xs px-6 py-3 rounded-2xl shadow-lg shadow-sky-600/25 flex items-center gap-2 active:scale-95 transition-all cursor-pointer"
                 >
-                  <RotateCw className={`w-4 h-4 ${isLoadingMoreUsers ? 'animate-spin' : ''}`} />
-                  <span>
-                    {isLoadingMoreUsers ? 'Loading Next 10 Users...' : 'Load Next 10 Users (+10) 👇'}
-                  </span>
+                  <RotateCw className="w-4 h-4" />
+                  <span>Show More Users (+20) 👇</span>
                 </button>
                 <span className="text-[11px] text-slate-500 font-medium">
-                  Currently displaying {Math.min(filteredUsers.length, visibleUserCount)} users • Loads 10 users per click to keep database fast
+                  Currently displaying {Math.min(filteredUsers.length, visibleUserCount)} of {users.length} registered users
                 </span>
               </div>
             )}

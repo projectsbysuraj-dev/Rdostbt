@@ -177,25 +177,25 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           <ExternalLink className="w-4 h-4 text-slate-400 stroke-[2]" />
         </button>
 
-        {/* Row 5: Contact for cheap bot website app creation */}
+        {/* Row 5: Message me to create your bot */}
         <button
           type="button"
           onClick={() => {
             triggerHaptic('light');
-            openExternalOrTelegramLink('https://t.me/rohit79041');
+            openExternalOrTelegramLink('https://t.me/Rohit79041');
           }}
           className="w-full p-3.5 flex items-center justify-between text-left hover:bg-rose-50/40 rounded-2xl transition-all cursor-pointer active:scale-[0.99]"
         >
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center text-lg shrink-0">
-              🚀
+              📩
             </div>
             <div className="leading-tight min-w-0">
               <span className="font-['Outfit'] font-bold text-slate-800 text-[14px] block truncate">
-                Contact for cheap bot website app creation
+                📩 Message me to create your bot 🤖
               </span>
               <span className="text-[11px] font-bold text-[#0284c7] block mt-0.5">
-                @rohit79041
+                Low Price :- @Rohit79041
               </span>
             </div>
           </div>

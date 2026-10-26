@@ -293,7 +293,12 @@ export const InviteScreen: React.FC<InviteScreenProps> = ({ user, settings }) =>
             </div>
           ) : (
             displayReferrals.map((ref, idx) => {
-              const isCompleted = ref.status === 'rewarded' || ref.status === 'active';
+              const isCompleted =
+                ref.rewardGiven === true ||
+                ref.status === 'completed_first_spin' ||
+                ref.status === 'completed' ||
+                ref.status === 'rewarded' ||
+                ref.status === 'active';
             const formattedDate = ref.createdAt
               ? new Date(ref.createdAt).toLocaleDateString('en-GB') + ' ' + new Date(ref.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
               : '10/10/2026 09:54 PM';
