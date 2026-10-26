@@ -34,9 +34,9 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 # ---------------------------------------------------------------------------
 # 1. CORE BOT CONFIGURATION
 # ---------------------------------------------------------------------------
-TOKEN = os.environ.get("BOT_TOKEN", "8984266485:AAGZIZjIwMnucpwDYf282z0-pAzsLALtWF0").strip()
+TOKEN = os.environ.get("BOT_TOKEN", "8984266485:AAENUKdJYVajzcdqthCX0uMnnYeu8pjfiMM").strip()
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "Scratch_upi_win_bot").strip().lstrip("@")
-WEB_URL = os.environ.get("WEB_URL", "https://scbot-ochre.vercel.app").strip().rstrip("/")
+WEB_URL = os.environ.get("WEB_URL", "https://rdostbt.vercel.app").strip().rstrip("/")
 RTDB_URL = os.environ.get("RTDB_URL", "https://rohit-kedostkadb-default-rtdb.firebaseio.com").strip().rstrip("/")
 TG_API_BASE = f"https://api.telegram.org/bot{TOKEN}"
 

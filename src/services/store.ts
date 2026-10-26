@@ -423,7 +423,18 @@ export async function verifyAdminLoginAsync(email: string, pass: string): Promis
   const cleanEmail = email.trim().toLowerCase();
   const cleanPass = pass.trim();
 
-  // 1. Fetch live active credentials directly from RTDB with cache busting
+  // 1. Instant check: If locally cached credentials match, log in immediately in 0ms!
+  const localCurrent = getAdminCredentials();
+  if (
+    cleanEmail === localCurrent.email.toLowerCase() &&
+    cleanPass === localCurrent.password
+  ) {
+    setAdminLoggedIn(true);
+    syncAdminCredentialsFromRemote().catch(() => {});
+    return { success: true };
+  }
+
+  // 2. Fetch live active credentials from RTDB in case credentials changed on another device
   try {
     const [authResp, adminResp, settingsResp] = await Promise.allSettled([
       fetch(`${RTDB_BASE_URL}/admin_auth.json?ts=${Date.now()}`, { cache: 'no-store' }),

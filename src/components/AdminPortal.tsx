@@ -27,6 +27,7 @@ import {
   Send,
   Sparkles,
   Megaphone,
+  Search,
 } from 'lucide-react';
 import {
   AppSettings,
@@ -91,7 +92,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [loadingReferralsUser, setLoadingReferralsUser] = useState<Record<string, boolean>>({});
   const [withdrawals, setWithdrawals] = useState(getAllWithdrawals());
   const [users, setUsers] = useState<UserProfile[]>(() => getAllUsers());
-  const [visibleUserCount, setVisibleUserCount] = useState<number>(20);
+  const [visibleUserCount, setVisibleUserCount] = useState<number>(5);
   const [nextUsersCursor, setNextUsersCursor] = useState<string | null>(null);
   const [hasMoreRemoteUsers, setHasMoreRemoteUsers] = useState<boolean>(false);
   const [isLoadingMoreUsers, setIsLoadingMoreUsers] = useState<boolean>(false);
@@ -135,34 +136,59 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   const [copiedItemKey, setCopiedItemKey] = useState<string | null>(null);
 
+  // Fast 0ms initial load from local cache + async background remote sync
   const loadInitialUsersBatch = async () => {
+    // 1. Immediately show cached users (0ms lag!)
+    const local = getAllUsers();
+    setUsers(local);
+    setVisibleUserCount(5);
+
+    // 2. Refresh remote in background without delaying screen opening
     setIsLoadingMoreUsers(true);
     try {
-      await purgeAllDummyUsers();
+      purgeAllDummyUsers().catch(() => {});
       const freshUsers = await refreshUsersFromRemote();
       if (freshUsers && freshUsers.length > 0) {
         setUsers(freshUsers);
-        setVisibleUserCount(Math.max(20, freshUsers.length));
-      } else {
-        const local = getAllUsers();
-        setUsers(local);
-        setVisibleUserCount(Math.max(20, local.length));
       }
-      setNextUsersCursor(null);
-      setHasMoreRemoteUsers(false);
     } catch {
-      setUsers(getAllUsers());
+      // Keep local
     } finally {
       setIsLoadingMoreUsers(false);
     }
   };
 
-  const handleLoadNext10Users = async () => {
+  const handleLoadNext5Users = () => {
     triggerHaptic('light');
-    const allLocal = getAllUsers();
-    const nextCount = visibleUserCount + 20;
-    setUsers(allLocal);
-    setVisibleUserCount(nextCount);
+    setVisibleUserCount((prev) => prev + 5);
+  };
+
+  const handleSearchClick = async () => {
+    triggerHaptic('light');
+    const clean = searchUserQuery.trim().toLowerCase().replace(/^[#@]/, '');
+    if (!clean) return;
+
+    const matched = users.some(
+      (u) =>
+        String(u.id).toLowerCase() === clean ||
+        String(u.telegramId || '').toLowerCase() === clean
+    );
+    if (!matched && clean.length >= 3) {
+      setIsSearchingRemote(true);
+      try {
+        const found = await fetchSingleRemoteUser(clean);
+        if (found) {
+          setUsers((prev) => {
+            const exists = prev.some((x) => String(x.id).trim() === String(found.id).trim());
+            return exists ? prev : [found, ...prev];
+          });
+        }
+      } catch {
+        // Safe ignore
+      } finally {
+        setIsSearchingRemote(false);
+      }
+    }
   };
 
   const toggleUserReferrals = async (userId: string) => {
@@ -1455,45 +1481,64 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </h2>
                   <span className="text-xs font-black uppercase px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1.5">
                     <Users className="w-3.5 h-3.5" />
-                    {users.length} Registered Users
-                  </span>
-                  <span className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/40">
-                    ⚡ Live RTDB
+                    Total Users: {users.length}
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 mt-1">
                   {cleanSearch ? (
                     <span>
-                      Found <strong className="text-sky-400 font-bold">{filteredUsers.length}</strong> matching "{searchUserQuery}" out of <strong className="text-emerald-400 font-bold">{users.length}</strong> registered users
+                      Found <strong className="text-sky-400 font-bold">{filteredUsers.length}</strong> matching "{searchUserQuery}" out of <strong className="text-emerald-400 font-bold">{users.length}</strong> users
                     </span>
                   ) : (
                     <span>
-                      Showing {Math.min(filteredUsers.length, visibleUserCount)} of <strong className="text-emerald-400 font-bold">{users.length}</strong> total registered users (100% clean real data)
+                      Showing {Math.min(filteredUsers.length, visibleUserCount)} of <strong className="text-emerald-400 font-bold">{users.length}</strong> users (5 per batch)
                     </span>
                   )}
                 </p>
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
-                <div className="relative flex-1 sm:w-64">
-                  <input
-                    type="text"
-                    placeholder="Search by User ID (#123456) or name..."
-                    value={searchUserQuery}
-                    onChange={(e) => setSearchUserQuery(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 text-sm pl-3 pr-8 py-2 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
-                  />
-                  {searchUserQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setSearchUserQuery('')}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs font-bold p-1 cursor-pointer"
-                      title="Clear search"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSearchClick();
+                  }}
+                  className="flex items-center gap-1.5 flex-1 sm:w-auto"
+                >
+                  <div className="relative flex-1 sm:w-60">
+                    <input
+                      type="text"
+                      placeholder="Search User ID (#123456) or name..."
+                      value={searchUserQuery}
+                      onChange={(e) => setSearchUserQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleSearchClick();
+                        }
+                      }}
+                      className="w-full bg-slate-950 border border-slate-800 text-sm pl-3 pr-8 py-2 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                    />
+                    {searchUserQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchUserQuery('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs font-bold p-1 cursor-pointer"
+                        title="Clear search"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    type="submit"
+                    className="px-3.5 py-2 bg-sky-600 hover:bg-sky-500 text-xs font-black text-white rounded-xl flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shadow-md shadow-sky-600/30"
+                    title="Search User"
+                  >
+                    <Search className="w-3.5 h-3.5" />
+                    <span>Search</span>
+                  </button>
+                </form>
 
                 {isSearchingRemote && (
                   <span className="flex items-center gap-1 text-[11px] text-sky-400 font-bold animate-pulse">
@@ -1728,19 +1773,19 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             </div>
           )}
 
-            {/* Show More Users Button */}
+            {/* Load More (+5 Users) Button */}
             {!cleanSearch && filteredUsers.length > visibleUserCount && (
               <div className="pt-2 flex flex-col items-center justify-center gap-2">
                 <button
                   type="button"
-                  onClick={handleLoadNext10Users}
+                  onClick={handleLoadNext5Users}
                   className="bg-gradient-to-r from-[#0284c7] to-[#0ea5e9] hover:from-[#0369a1] hover:to-[#0284c7] text-white font-['Outfit'] font-black text-xs px-6 py-3 rounded-2xl shadow-lg shadow-sky-600/25 flex items-center gap-2 active:scale-95 transition-all cursor-pointer"
                 >
                   <RotateCw className="w-4 h-4" />
-                  <span>Show More Users (+20) 👇</span>
+                  <span>Load More (+5 Users) 👇</span>
                 </button>
                 <span className="text-[11px] text-slate-500 font-medium">
-                  Currently displaying {Math.min(filteredUsers.length, visibleUserCount)} of {users.length} registered users
+                  Showing {Math.min(filteredUsers.length, visibleUserCount)} of {users.length} users (5 users per click)
                 </span>
               </div>
             )}
