@@ -220,7 +220,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                 Any problem dm kro
               </span>
               <span className="text-[11px] font-bold text-[#ea580c] block mt-0.5">
-                @Rohit79041
+                @boss6578
               </span>
             </div>
           </div>
