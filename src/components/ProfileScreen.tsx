@@ -207,7 +207,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           type="button"
           onClick={() => {
             triggerHaptic('light');
-            openExternalOrTelegramLink('https://t.me/Rohit79041');
+            openExternalOrTelegramLink('https://t.me/boss6578');
           }}
           className="w-full p-3.5 flex items-center justify-between text-left hover:bg-rose-50/40 rounded-2xl transition-all cursor-pointer active:scale-[0.99]"
         >
