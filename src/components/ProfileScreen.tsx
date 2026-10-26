@@ -14,12 +14,14 @@ interface ProfileScreenProps {
   onNavigate: (tab: TabType) => void;
   isDarkMode?: boolean;
   onToggleDarkMode?: () => void;
+  onOpenAdmin?: () => void;
 }
 
 export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   user,
   settings,
   onNavigate,
+  onOpenAdmin,
 }) => {
   const handleOpenChannel = () => {
     triggerHaptic('light');
@@ -225,6 +227,37 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             </div>
           </div>
           <ExternalLink className="w-4 h-4 text-slate-400 stroke-[2] shrink-0" />
+        </button>
+
+        {/* Row 7: Admin Control Portal */}
+        <button
+          type="button"
+          onClick={() => {
+            triggerHaptic('medium');
+            if (onOpenAdmin) {
+              onOpenAdmin();
+            } else {
+              window.location.hash = '#admin';
+            }
+          }}
+          className="w-full p-3.5 flex items-center justify-between text-left hover:bg-slate-100 rounded-2xl transition-all cursor-pointer active:scale-[0.99] border-t border-slate-100"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-slate-900 text-amber-400 flex items-center justify-center text-sm font-bold shrink-0">
+              🔐
+            </div>
+            <div className="leading-tight min-w-0">
+              <span className="font-['Outfit'] font-bold text-slate-800 text-[14px] block truncate">
+                Admin Control Portal
+              </span>
+              <span className="text-[11px] font-bold text-slate-500 block mt-0.5">
+                Owner Login &amp; Management (/admin)
+              </span>
+            </div>
+          </div>
+          <span className="text-[11px] font-bold text-sky-600 bg-sky-50 px-2.5 py-1 rounded-lg">
+            Open ↗
+          </span>
         </button>
       </div>
     </div>

@@ -34,7 +34,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 # ---------------------------------------------------------------------------
 # 1. CORE BOT CONFIGURATION
 # ---------------------------------------------------------------------------
-TOKEN = os.environ.get("BOT_TOKEN", "8984266485:AAENUKdJYVajzcdqthCX0uMnnYeu8pjfiMM").strip()
+TOKEN = os.environ.get("BOT_TOKEN", "8984266485:AAH0V5yp1eqbN4Es55mbK8S6BZOv9lzN4XA").strip()
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "Scratch_upi_win_bot").strip().lstrip("@")
 WEB_URL = os.environ.get("WEB_URL", "https://rdostbt.vercel.app").strip().rstrip("/")
 RTDB_URL = os.environ.get("RTDB_URL", "https://rohit-kedostkadb-default-rtdb.firebaseio.com").strip().rstrip("/")

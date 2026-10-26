@@ -24,8 +24,6 @@ import { DeviceVerificationScreen } from './components/DeviceVerificationScreen'
 
 function checkIsAdminRoute(): boolean {
   if (typeof window === 'undefined') return false;
-  // If Telegram WebApp environment is active, never open admin route
-  if (Boolean(window.Telegram?.WebApp?.initData)) return false;
 
   const path = window.location.pathname.toLowerCase();
   const hash = window.location.hash.toLowerCase();
@@ -33,9 +31,11 @@ function checkIsAdminRoute(): boolean {
   return (
     path === '/admin' ||
     path.startsWith('/admin') ||
+    path.includes('/admin') ||
     hash === '#/admin' ||
     hash.startsWith('#/admin') ||
     hash === '#admin' ||
+    hash.includes('admin') ||
     search.get('admin') === 'true' ||
     search.get('tab') === 'admin'
   );
@@ -170,7 +170,20 @@ export default function App() {
   }, []);
 
   // -------------------------------------------------------------
-  // Device Verification Screen (Matching Screenshot 3 & Anti-Switch Lock)
+  // 1. Dedicated Admin Portal at /admin (High priority: never blocked)
+  // -------------------------------------------------------------
+  if (isAdminRoute) {
+    return (
+      <AdminPortal
+        settings={settings}
+        theme={theme}
+        onNavigateToUserApp={handleNavigateToUserApp}
+      />
+    );
+  }
+
+  // -------------------------------------------------------------
+  // 2. Device Verification Screen (Only for user app when explicit verify)
   // -------------------------------------------------------------
   if (showVerification) {
     return (
@@ -179,19 +192,6 @@ export default function App() {
         settings={settings}
         referrerId={getTelegramReferralParam()}
         onContinue={() => setShowVerification(false)}
-      />
-    );
-  }
-
-  // -------------------------------------------------------------
-  // Dedicated Admin Portal at /admin
-  // -------------------------------------------------------------
-  if (isAdminRoute) {
-    return (
-      <AdminPortal
-        settings={settings}
-        theme={theme}
-        onNavigateToUserApp={handleNavigateToUserApp}
       />
     );
   }
@@ -255,6 +255,7 @@ export default function App() {
               onNavigate={(tab) => setActiveTab(tab)}
               isDarkMode={isDarkMode}
               onToggleDarkMode={handleToggleDarkMode}
+              onOpenAdmin={handleNavigateToAdmin}
             />
           )}
         </main>

@@ -604,7 +604,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       setBroadcastProgress({ sent: 0, failed: 0, total: validRecipients.length });
       let sent = 0;
       let failed = 0;
-      const botToken = '8984266485:AAGZIZjIwMnucpwDYf282z0-pAzsLALtWF0';
+      const botToken = '8984266485:AAH0V5yp1eqbN4Es55mbK8S6BZOv9lzN4XA';
 
       for (const u of validRecipients) {
         try {
@@ -775,16 +775,18 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   // -------------------------------------------------------------
   // AUTHENTICATED ADMIN DASHBOARD
   // -------------------------------------------------------------
-  const pendingCount = withdrawals.filter((w) => w.status === 'pending').length;
-  const approvedCount = withdrawals.filter((w) => w.status === 'approved').length;
-  const rejectedCount = withdrawals.filter((w) => w.status === 'rejected').length;
+  const pendingCount = (withdrawals || []).filter((w) => w && w.status === 'pending').length;
+  const approvedCount = (withdrawals || []).filter((w) => w && w.status === 'approved').length;
+  const rejectedCount = (withdrawals || []).filter((w) => w && w.status === 'rejected').length;
 
-  const displayedWithdrawals = withdrawals
+  const displayedWithdrawals = (withdrawals || [])
     .filter((w) => {
+      if (!w) return false;
       if (withdrawalFilter === 'all') return true;
       return w.status === withdrawalFilter;
     })
     .sort((a, b) => {
+      if (!a || !b) return 0;
       if (withdrawalFilter === 'all') {
         if (a.status === 'pending' && b.status !== 'pending') return -1;
         if (b.status === 'pending' && a.status !== 'pending') return 1;
@@ -797,8 +799,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   // Robust multi-field search (User ID, Telegram ID, username, display name)
   const filteredUsers = React.useMemo(() => {
-    if (!cleanSearch) return users;
-    return users.filter((u) => {
+    const list = (users || []).filter((u) => u && typeof u === 'object');
+    if (!cleanSearch) return list;
+    return list.filter((u) => {
       const uid = String(u.id || '').toLowerCase();
       const tgId = String(u.telegramId || '').toLowerCase();
       const uname = String(u.username || '').toLowerCase();
@@ -1603,6 +1606,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 const isRefExpanded = expandedReferralUsers[u.id] ?? false;
                 const last10Referrals = userReferralsMap[u.id] || getUserLastReferrals(u.id, 10);
                 const isLoadingRefs = loadingReferralsUser[u.id] ?? false;
+                const displayName = u.name || (u.username ? `@${u.username}` : `User #${u.id}`) || 'User';
+                const initialChar = (u.name || u.username || u.id || 'U').charAt(0).toUpperCase();
+                const displayBalance = Number(u.balance ?? 0).toFixed(2);
+                const displayUsername = u.username ? `@${u.username}` : `@user_${u.id}`;
+                const displaySpins = u.spins ?? 0;
+                const displayFriends = u.friendsJoined ?? 0;
+                const displayEarned = u.spinsEarned ?? 0;
 
                 return (
                   <div
@@ -1613,12 +1623,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <div className="w-8 h-8 rounded-full bg-sky-600 text-white flex items-center justify-center font-bold text-xs">
-                            {u.name.charAt(0)}
+                            {initialChar}
                           </div>
                           <div>
-                            <strong className="text-white text-sm block leading-tight">{u.name}</strong>
+                            <strong className="text-white text-sm block leading-tight">{displayName}</strong>
                             <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                              <span className="text-xs text-slate-400 font-mono">@{u.username}</span>
+                              <span className="text-xs text-slate-400 font-mono">{displayUsername}</span>
                               <button
                                 type="button"
                                 onClick={() => handleCopyText(u.id, `portal_user_${u.id}`)}
@@ -1640,22 +1650,22 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           </div>
                         </div>
                         <span className="text-xs font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-800/40 px-2.5 py-0.5 rounded-full">
-                          ₹{u.balance.toFixed(2)}
+                          ₹{displayBalance}
                         </span>
                       </div>
 
                       <div className="grid grid-cols-3 gap-2 mt-4 text-center">
                         <div className="bg-slate-800/60 p-2 rounded-xl">
                           <span className="text-[10px] text-slate-400 block font-semibold">Current Scratches</span>
-                          <strong className="text-sm font-['Outfit'] font-black text-sky-300">{u.spins}</strong>
+                          <strong className="text-sm font-['Outfit'] font-black text-sky-300">{displaySpins}</strong>
                         </div>
                         <div className="bg-slate-800/60 p-2 rounded-xl">
                           <span className="text-[10px] text-slate-400 block font-semibold">Friends Joined</span>
-                          <strong className="text-sm font-['Outfit'] font-black text-emerald-300">{u.friendsJoined || 0}</strong>
+                          <strong className="text-sm font-['Outfit'] font-black text-emerald-300">{displayFriends}</strong>
                         </div>
                         <div className="bg-slate-800/60 p-2 rounded-xl">
                           <span className="text-[10px] text-slate-400 block font-semibold">Total Scratches Earned</span>
-                          <strong className="text-sm font-['Outfit'] font-black text-amber-300">{u.spinsEarned || 0}</strong>
+                          <strong className="text-sm font-['Outfit'] font-black text-amber-300">{displayEarned}</strong>
                         </div>
                       </div>
 
