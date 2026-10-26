@@ -255,7 +255,6 @@ export default function App() {
               onNavigate={(tab) => setActiveTab(tab)}
               isDarkMode={isDarkMode}
               onToggleDarkMode={handleToggleDarkMode}
-              onOpenAdmin={handleNavigateToAdmin}
             />
           )}
         </main>
